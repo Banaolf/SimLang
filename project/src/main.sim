@@ -1,8 +1,0 @@
-be raw = 'that\tthat' /_would output that\tthat_/
-be norm = "that\tthat" /_would output that	that_/
-out (raw) /_that\tthat_/
-norm = "this\nthis"
-out (norm) /_
-this
-this
-_/

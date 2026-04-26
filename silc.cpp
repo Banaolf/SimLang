@@ -1,3 +1,4 @@
+#include <any>
 #include <cstdint>
 #include <cstring>
 #include <utility>
@@ -498,47 +499,70 @@ namespace Parser {
     }
 }
 
-uint64_t flags = 0;
-/* Flaglist
+/* Flaglist */
 
-*/
+std::string logged;
+void log(std::string __tolog) {
+	logged.push_back('\n');
+	logged.append(__tolog);
+}
 
 /*
 The main compiling From the AST.
 @parameter head: The head(root) of the AST
 @return Compiler exit code.
 */
-std::string target = "";
+enum class ValueType {
+
+};
+class Value {
+private:
+	std::any mainval;
+};
+
+//uint32_t flags = 0;
+std::string target = "out/main.simb";
+//Compile the program into Sim Bytecode! (AKA: .simb, .smb)
 int compile(Parser::Node* head) {
 	if (errq()) return 1;
-	FILE* f = fopen("out/main.o", "w");
-	if (!f) return 3;
+	FILE* f = fopen(target.c_str(), "w");
+	if (!f) return 2;
+
 	return 0;
 }
 
 #define VERSION "S1"
 int main(int argc, char* argv[]) {
+	int ret = 0;
 	//Example: simc input.sim -o input (flags)
-	if (argc <= 1) {std::cout << "Usage: simc -i input.sim -o output (flags)" << std::endl; return 1;}
-	if (strcmp(argv[1], "-v")) {std::cout << VERSION << std::endl;}
-	else if (strcmp(argv[1], "--flags")) {std::cout << "None yet." << std::endl;}
+	if (argc <= 1) {std::cout << "Usage: simc -i input.sim -o output.simb (flags)" << std::endl; ret = 4;}
+	if (strcmp(argv[1], "-v")) {std::cout << VERSION << std::endl;ret = 0;}
+	else if (strcmp(argv[1], "--flags")) {std::cout << "None yet." << std::endl;ret = 0;}
 	else {
-		char* path;
+		std::string path;
 		for (int i = 1; i < argc; i++) {
 			char* current = argv[i];
 			if (strcmp(current, "-i")) {
-				if (i+1 >= argc) {std::cout << "Usage for -i: -i input.sim" << std::endl; return 4;}
+				if (i+1 >= argc) {std::cout << "Usage for -i: -i input.sim" << std::endl; ret = 4;}
 				path = argv[i+1];
 				i++;
 			} else if (strcmp(current, "-o")) {
-				if (i+1 >= argc) {std::cout << "Usage for -i: -o input.o" << std::endl; return 4;}
+				if (i+1 >= argc) {std::cout << "Usage for -i: -o input.o" << std::endl; ret = 4;}
 				target = argv[i+1];
 				i++;
 			} else {
 				std::cout << "Invalid flag" << std::endl;
-				return 4;
+				ret = 4;
 			}
 		}
+		lex(path);
+		Parser::Node* head = Parser::parseTokenList();
+		ret = compile(head);
 	}
-	return 0;
+	if (logged.size() > 0) {
+		FILE* logging = fopen("latest.log", "w");
+		fprintf(logging, "%s", logged.c_str());
+		fclose(logging);
+	}
+	return ret;
 }
