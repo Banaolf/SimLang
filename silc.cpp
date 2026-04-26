@@ -1,6 +1,6 @@
-#include <any>
 #include <cstdint>
 #include <cstring>
+#include <sys/types.h>
 #include <utility>
 #include <cctype>
 #include <iostream>
@@ -268,6 +268,7 @@ namespace Parser {
 	private:
 		std::string extra;
 		NodeType ty;
+		int childcount = 0;
 		std::vector<Node*> Children;
 	public:
 		Node(NodeType __Ty) : extra(""), ty(__Ty), Children() {}
@@ -275,11 +276,13 @@ namespace Parser {
 			if (this->Children.size() == 0) return;
 			for (auto child : this->Children) {
 				delete child;
+				this->childcount--;
 			}
 		}
 		//Add a child to the Children vector
 		void addChild(Node* __ptr_to_node) {
 			Children.push_back(__ptr_to_node);
+			this->childcount++;
 		}
 		//Add a string as "extra info"
 		void addExtra(std::string s) {this->extra = s;}
@@ -292,23 +295,27 @@ namespace Parser {
 		*/
 		Node* getChild(int __idx) {return this->Children[__idx];}
 		//Get the extra info
-		std::string_view getExtra() {return this->extra;}
+		std::string getExtra() {return this->extra;}
+		//Get the type
+		NodeType getType() {return this->ty;}
+		//Get the amount of children
+		int getChildcount() {return this->childcount;}
 	};
 	#define whereabouts(current) current->getLine(), current->getChar()
 	// Current token index
-    int cursor = 0;
+	int cursor = 0;
 
-    inline Tken* peek(int offset = 0) {
-        if (cursor + offset < TkenList.size() && cursor + offset >= 0) {
-            return &TkenList.at(cursor + offset);
-        }
-        return &TkenList.back(); 
-    }
+	inline Tken* peek(int offset = 0) {
+		if (cursor + offset < TkenList.size() && cursor + offset >= 0) {
+			return &TkenList.at(cursor + offset);
+		}
+		return &TkenList.back(); 
+	}
 
-    inline Tken* advance() {
-        if (cursor < TkenList.size()) return &TkenList[cursor++];
-        return &TkenList.back();
-    }
+	inline Tken* advance() {
+		if (cursor < TkenList.size()) return &TkenList[cursor++];
+		return &TkenList.back();
+	}
 	#define addextracontents lit->addExtra(current->getCont());
 
 	Node* parseExpression();
@@ -343,13 +350,13 @@ namespace Parser {
 				id->addExtra(current->getCont());
 				lit->addChild(id);
 				current = advance();
-                Node* args = new Node(NodeType::Arguments);
+				Node* args = new Node(NodeType::Arguments);
 				while (!peek()->cmp(')') && !peek()->cmp(Tkty::EndOfFile)) {
 					if (peek()->cmp(Tkty::Newline)) { cursor++; continue; }
-                    
-                    Node* expr = parseExpression(); //Recursion at its finest
-                    if (!expr) { delete lit; delete args; return nullptr; }
-                    args->addChild(expr);
+					
+					Node* expr = parseExpression(); //Recursion at its finest
+					if (!expr) { delete lit; delete args; return nullptr; }
+					args->addChild(expr);
 				}
 				lit->addChild(args);
 				if (peek()->cmp(Tkty::EndOfFile)) {
@@ -365,7 +372,7 @@ namespace Parser {
 			}//Future: method and attribute access with @
 		} else
 			reqerr("Unexpected expression", "SyntaxError", whereabouts(current));
-        return lit; 
+		return lit; 
 	}
 
 	Node* parseTerm() {
@@ -408,95 +415,95 @@ namespace Parser {
 		return left;
 	}
 
-    Node* parseExpression() {return parseAddSub();}
+	Node* parseExpression() {return parseAddSub();}
 
-    Node* parseStatement() {
-        if (errq()) return nullptr;
-        
-        Tken* current = peek();
-        Node* retnode = new Node(NodeType::Body);
+	Node* parseStatement() {
+		if (errq()) return nullptr;
+		
+		Tken* current = peek();
+		Node* retnode = new Node(NodeType::Body);
 
-        if (current->cmp(Tkty::Identifier)) {
-            Node* idnm = new Node(NodeType::Identifier);
-            idnm->addExtra(advance()->getCont()); 
-            retnode->addChild(idnm);
+		if (current->cmp(Tkty::Identifier)) {
+			Node* idnm = new Node(NodeType::Identifier);
+			idnm->addExtra(advance()->getCont()); 
+			retnode->addChild(idnm);
 
-            // Case: x = 5
-            if (peek()->cmp(Tkty::Equals)) {
-                retnode->resetType(NodeType::VarReassign);
-                advance(); // consume '='
-                Node* expr = parseExpression();
-                if (!expr) { delete retnode; return nullptr; }
-                retnode->addChild(expr);
-            } 
-            // Case: x(args)
-            else if (peek()->cmp(Tkty::Parenthesis) && peek()->cmp('(')) {
-                retnode->resetType(NodeType::FunctionCall);
-                advance(); // consume '('
-                Node* args = new Node(NodeType::Arguments);
-                while (!peek()->cmp(")") && !peek()->cmp(Tkty::EndOfFile)) {
-                    if (peek()->cmp(Tkty::Newline)) { cursor++; continue; }
-                    
-                    Node* expr = parseExpression();
-                    if (!expr) { delete retnode; delete args; return nullptr; }
-                    args->addChild(expr);
-                }
-                retnode->addChild(args);
-                advance(); // consume ')'
-            }
-        } 
-        else if (current->cmp(Tkty::Keyword)) {
-            if (current->getCont() == "be") {
-                advance(); // consume 'be'
-                
-                if (!peek()->cmp(Tkty::Identifier)) {
-                    delete retnode; 
-                    reqerr("Expected name after 'be'", "SyntaxError", whereabouts(current));
-                    return nullptr;
-                }
+			// Case: x = 5
+			if (peek()->cmp(Tkty::Equals)) {
+				retnode->resetType(NodeType::VarReassign);
+				advance(); // consume '='
+				Node* expr = parseExpression();
+				if (!expr) { delete retnode; return nullptr; }
+				retnode->addChild(expr);
+			} 
+			// Case: x(args)
+			else if (peek()->cmp(Tkty::Parenthesis) && peek()->cmp('(')) {
+				retnode->resetType(NodeType::FunctionCall);
+				advance(); // consume '('
+				Node* args = new Node(NodeType::Arguments);
+				while (!peek()->cmp(")") && !peek()->cmp(Tkty::EndOfFile)) {
+					if (peek()->cmp(Tkty::Newline)) { cursor++; continue; }
+					
+					Node* expr = parseExpression();
+					if (!expr) { delete retnode; delete args; return nullptr; }
+					args->addChild(expr);
+				}
+				retnode->addChild(args);
+				advance(); // consume ')'
+			}
+		} 
+		else if (current->cmp(Tkty::Keyword)) {
+			if (current->getCont() == "be") {
+				advance(); // consume 'be'
+				
+				if (!peek()->cmp(Tkty::Identifier)) {
+					delete retnode; 
+					reqerr("Expected name after 'be'", "SyntaxError", whereabouts(current));
+					return nullptr;
+				}
 
-                Node* idnt = new Node(NodeType::Identifier);
-                idnt->addExtra(advance()->getCont());
-                retnode->addChild(idnt);
+				Node* idnt = new Node(NodeType::Identifier);
+				idnt->addExtra(advance()->getCont());
+				retnode->addChild(idnt);
 
-                if (peek()->cmp(Tkty::Equals)) {
-                    retnode->resetType(NodeType::VarSet);
-                    advance(); // consume '='
-                    Node* expr = parseExpression();
-                    if (!expr) { delete retnode; return nullptr; }
-                    retnode->addChild(expr);
-                } 
-                else if (peek()->cmp(Tkty::Parenthesis) && peek()->cmp('(')) {
-                    retnode->resetType(NodeType::FunctionDef);
-                    advance();
-                    advance();
-                }
-            }
-        }
+				if (peek()->cmp(Tkty::Equals)) {
+					retnode->resetType(NodeType::VarSet);
+					advance(); // consume '='
+					Node* expr = parseExpression();
+					if (!expr) { delete retnode; return nullptr; }
+					retnode->addChild(expr);
+				} 
+				else if (peek()->cmp(Tkty::Parenthesis) && peek()->cmp('(')) {
+					retnode->resetType(NodeType::FunctionDef);
+					advance();
+					advance();
+				}
+			}
+		}
 
-        if (!peek()->is_statement_ender()) {
-            delete retnode;
-            reqerr("Missing statement ender", "SyntaxError", whereabouts(peek()));
-            return nullptr;
-        }
-        advance();
-        return retnode;
-    }
+		if (!peek()->is_statement_ender()) {
+			delete retnode;
+			reqerr("Missing statement ender", "SyntaxError", whereabouts(peek()));
+			return nullptr;
+		}
+		advance();
+		return retnode;
+	}
 
-    Node* parseTokenList() {
-        Node* head = new Node(NodeType::Body);
-        while (cursor < TkenList.size() && !peek()->cmp(Tkty::EndOfFile)) {
-            // Fast-skip redundant newlines or comments
-            if (peek()->cmp(Tkty::Newline) || peek()->cmp(Tkty::Hashtag)) {
-                cursor++;
-                continue;
-            }
-            Node* ret = parseStatement();
-            if (!ret) return nullptr;
-            head->addChild(ret);
-        }
-        return head;
-    }
+	Node* parseTokenList() {
+		Node* head = new Node(NodeType::Body);
+		while (cursor < TkenList.size() && !peek()->cmp(Tkty::EndOfFile)) {
+			// Fast-skip redundant newlines or comments
+			if (peek()->cmp(Tkty::Newline) || peek()->cmp(Tkty::Hashtag)) {
+				cursor++;
+				continue;
+			}
+			Node* ret = parseStatement();
+			if (!ret) return nullptr;
+			head->addChild(ret);
+		}
+		return head;
+	}
 }
 
 /* Flaglist */
@@ -507,35 +514,178 @@ void log(std::string __tolog) {
 	logged.append(__tolog);
 }
 
-/*
-The main compiling From the AST.
-@parameter head: The head(root) of the AST
-@return Compiler exit code.
-*/
-enum class ValueType {
-
-};
-class Value {
+#define VERSION "SIL1"
+#define VERNUM 1
+class Compiler {
 private:
-	std::any mainval;
+	#pragma pack(push, 1)
+	struct BynaryHeader {
+		char magic[5] = "SIL!";
+		int version = VERNUM;
+		int minversion = VERNUM;
+		uint32_t stringCount;
+		uint32_t codeSize;
+	};
+	#pragma pack(pop)
+
+	enum opcodes {
+		PUSH_INT = 0x00, //Booleans are treated as integers
+		PUSH_STRING = 0x01, //Raw strings and strings are the same to the compiler.
+		PUSH_FLOAT = 0x02,
+		POP = 0x03,
+		ADDITION = 0x04,
+		SUBTRACTION = 0x05,
+		MULTIPLICATION = 0x06,
+		DIVISION = 0x07,
+		STORE_NAMED = 0x08,
+		LOAD_NAMED = 0x09,
+		CALL_NAMED = 0x0A,
+		DEF_NAMED = 0x0B,
+		RESTORE_NAMED = 0x0C,
+		JUMP = 0x0D,
+		RETURN = 0x0E,
+	};
+	//uint32_t flags = 0;
+	/*
+	The main compiling From the AST.
+	@parameter head: The head(root) of the AST
+	@return Compiler exit code.
+	*/
+	FILE* file;
+	std::vector<std::string> stringTable;
+	inline void emit(opcodes code) {
+		fwrite(&code, 1, 1, this->file);
+	}
+	inline void emitString(const std::string& v) {
+		fwrite(v.c_str(), 1, v.size()+1, file);
+	}
+	template<typename V>
+	inline void emitLiteral(V v) {
+		fwrite(&v, sizeof(V), 1, file);
+	}
+	int getOrAddString(const std::string& str) {
+		for (int i = 0; i < stringTable.size(); i++) {
+			if (stringTable[i] == str) return i;
+		}
+		stringTable.push_back(str);
+		return stringTable.size() - 1;
+	}
+	void codegen(Parser::Node* head) {
+		switch (head->getType()) {
+			case Parser::NodeType::VarSet: {
+				this->emit(opcodes::STORE_NAMED);
+				for (int i = 0; i < head->getChildcount(); i++) {
+					codegen(head->getChild(i));
+				}
+				break;
+			}
+			case Parser::NodeType::VarReassign: {
+				this->emit(opcodes::RESTORE_NAMED);
+				for (int i = 0; i < head->getChildcount(); i++) {
+					this->codegen(head->getChild(i));
+				}
+				break;
+			}
+			case Parser::NodeType::VarGet: {
+				this->emit(opcodes::LOAD_NAMED);
+				for (int i = 0; i < head->getChildcount(); i++) {
+					this->codegen(head->getChild(i));
+				}
+				break;
+			}
+			case Parser::NodeType::Body: {
+				for (int i = 0; i < head->getChildcount(); i++) {
+					this->codegen(head->getChild(i));
+				}
+				break;
+			}
+			case Parser::NodeType::Identifier: {
+				int rslt = this->getOrAddString(head->getExtra());
+				emitLiteral<int>(rslt);
+				break;
+			}
+			case Parser::NodeType::Integer: {
+				emitLiteral<int>(std::stoi(head->getExtra()));
+				break;
+			}
+			case Parser::NodeType::Float: {
+				emitLiteral<double>(std::stod(head->getExtra()));
+				break;
+			}
+			case Parser::NodeType::String:
+			case Parser::NodeType::RawString: {
+				emitString(head->getExtra());
+				break;
+			}
+			case Parser::NodeType::Boolean: {
+				emitLiteral<int>((head->getExtra() == "true") ? 1 : 0); //Being LEXED (always) as true or false
+				break;
+			}
+			case Parser::NodeType::Operation: {
+				switch(head->getExtra()[0]) { //Always 1 character, + - * /
+					case '+':
+						emit(opcodes::ADDITION);
+						for (int i = 0; i < head->getChildcount(); i++) {
+							this->codegen(head->getChild(i));
+						}
+						break;
+					case '-':
+						emit(opcodes::SUBTRACTION);
+						for (int i = 0; i < head->getChildcount(); i++) {
+							this->codegen(head->getChild(i));
+						}
+						break;
+					case '/':
+						emit(opcodes::DIVISION);
+						for (int i = 0; i < head->getChildcount(); i++) {
+							this->codegen(head->getChild(i));
+						}
+						break;
+					case '*':
+						emit(opcodes::MULTIPLICATION);
+						for (int i = 0; i < head->getChildcount(); i++) {
+							this->codegen(head->getChild(i));
+						}
+						break;
+					default: break;
+				}
+			}
+			case Parser::NodeType::Arguments: {
+				for (int i = head->getChildcount()-1; i >= 0; i--) {
+					emit(STORE_NAMED);
+				}
+			}
+			case Parser::NodeType::FunctionDef:
+			case Parser::NodeType::FunctionCall:
+			default:
+				break;
+		}
+	}
+	std::string target = "out/main.simb";
+public:
+	Compiler() {}
+	Compiler(char* Target) {
+		this->target = Target;
+		this->file = fopen(target.c_str(), "wb");
+	}
+	~Compiler() {
+		fclose(this->file);
+	}
+	int compile(Parser::Node* head) {
+		if (errq()) return 1;
+		//Writing header & version
+		fwrite("SIL!", 1, 4, this->file);fwrite(VERSION, 1, strlen(VERSION), this->file);
+
+		//Main compiling
+		this->codegen(head);
+		return 0;
+	}
 };
-
-//uint32_t flags = 0;
-std::string target = "out/main.simb";
-//Compile the program into Sim Bytecode! (AKA: .simb, .smb)
-int compile(Parser::Node* head) {
-	if (errq()) return 1;
-	FILE* f = fopen(target.c_str(), "w");
-	if (!f) return 2;
-
-	return 0;
-}
-
-#define VERSION "S1"
 int main(int argc, char* argv[]) {
 	int ret = 0;
-	//Example: simc input.sim -o input (flags)
-	if (argc <= 1) {std::cout << "Usage: simc -i input.sim -o output.simb (flags)" << std::endl; ret = 4;}
+	Compiler* comp;
+	//Example: silc input.sil -o input.silc (flags)
+	if (argc <= 1) {std::cout << "Usage: silc -i input.sil -o output.silb (flags)" << std::endl; ret = 4;}
 	if (strcmp(argv[1], "-v")) {std::cout << VERSION << std::endl;ret = 0;}
 	else if (strcmp(argv[1], "--flags")) {std::cout << "None yet." << std::endl;ret = 0;}
 	else {
@@ -543,12 +693,12 @@ int main(int argc, char* argv[]) {
 		for (int i = 1; i < argc; i++) {
 			char* current = argv[i];
 			if (strcmp(current, "-i")) {
-				if (i+1 >= argc) {std::cout << "Usage for -i: -i input.sim" << std::endl; ret = 4;}
+				if (i+1 >= argc) {std::cout << "Usage for -i: -i input.sil" << std::endl; ret = 4;}
 				path = argv[i+1];
 				i++;
 			} else if (strcmp(current, "-o")) {
-				if (i+1 >= argc) {std::cout << "Usage for -i: -o input.o" << std::endl; ret = 4;}
-				target = argv[i+1];
+				if (i+1 >= argc) {std::cout << "Usage for -i: -o input.silc" << std::endl; ret = 4;}
+				comp = new Compiler(argv[i+1]);
 				i++;
 			} else {
 				std::cout << "Invalid flag" << std::endl;
@@ -557,12 +707,13 @@ int main(int argc, char* argv[]) {
 		}
 		lex(path);
 		Parser::Node* head = Parser::parseTokenList();
-		ret = compile(head);
+		ret = comp->compile(head);
 	}
 	if (logged.size() > 0) {
 		FILE* logging = fopen("latest.log", "w");
 		fprintf(logging, "%s", logged.c_str());
 		fclose(logging);
 	}
+	delete comp;
 	return ret;
 }
