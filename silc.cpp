@@ -516,7 +516,15 @@ namespace Parser {
 			reqerr("Expected newline as block starter", "SyntaxError", whereabouts(current));
 			return nullptr;
 		}
-		
+		current = advance();
+		Node* body = new Node(NodeType::Body);
+		while (cursor < TkenList.size() && !peek()->cmp(Tkty::EndOfFile) && !peek()->cmp("end")) {
+			Node* child = parseStatement();
+			if (!child) {delete body; return nullptr;}
+			body->addChild(child);
+		}
+		if (!peek()->cmp("end")) {delete body; reqerr("Expected 'end' as block ender", "Syn")}
+		return body;
 	}
 
 	Node* parseTokenList() {
@@ -580,6 +588,7 @@ private:
 		JUMP = 0x0D,
 		RETURN = 0x0E,
 		ADDARG = 0x0F,
+		ENDARGS = 0x10,
 	};
 	//uint32_t flags = 0;
 	/*
@@ -691,36 +700,38 @@ private:
 					emit(opcodes::ADDARG);
 					codegen(head->getChild(i));
 				}
+				emit(opcodes::ENDARGS);
 				break;
 			}
 			case Parser::NodeType::FunctionDef: {
-				// 1. Tell Sil the NAME of this function
 				emit(opcodes::DEF_NAMED);
-				int nameIdx = getOrAddString(head->getChild(0)->getExtra()); // Assuming child 0 is the name
-				emitLiteral<int>(nameIdx); 
+				int nameIdx = getOrAddString(head->getChild(0)->getExtra());
+				emitLiteral<int>(nameIdx);
 
-				// 2. The Skip Logic
 				emit(opcodes::JUMP);
 				long patchLocation = ftell(file);
 				int dummy = 0; 
-				fwrite(&dummy, sizeof(int), 1, file); // Use a variable, not a literal 0
+				fwrite(&dummy, sizeof(int), 1, file);
 
-				// 3. The Body (Arguments are child 1, Body is child 2)
-				codegen(head->getChild(1)); // Args
-				codegen(head->getChild(2)); // Logic
+				codegen(head->getChild(1));
+				codegen(head->getChild(2));
 				
 				emit(opcodes::RETURN);
 
-				// 4. The Patch
 				long endOfFunc = ftell(file);
-				int jumpDistance = (int)(endOfFunc - (patchLocation + sizeof(int))); // How far to skip
+				int jumpDistance = (int)(endOfFunc - (patchLocation + sizeof(int)));
 				
 				fseek(file, patchLocation, SEEK_SET);
-				fwrite(&jumpDistance, sizeof(int), 1, file); 
-				fseek(file, endOfFunc, SEEK_SET); // Back to the end to continue!
+				fwrite(&jumpDistance, sizeof(int), 1, file);
+				fseek(file, endOfFunc, SEEK_SET);
 				break;
 			}
-			case Parser::NodeType::FunctionCall:
+			case Parser::NodeType::FunctionCall: {
+				emit(opcodes::CALL_NAMED);
+				int nameidx = getOrAddString(head->getChild(0)->getExtra());
+				emitLiteral<int>(nameidx);
+				codegen(head->getChild(0));
+			}
 			default:
 				break;
 		}
@@ -735,11 +746,13 @@ private:
 			countStrings(child);
 		}
 	}
-	std::string target = "out/main.simb";
+	std::string target = "main.simb";
 	BynaryHeader header;
 public:
+	bool is_initialised = false;
 	Compiler() {}
 	Compiler(char* Target) {
+		this->is_initialised = true;
 		this->target = Target;
 		this->file = fopen(target.c_str(), "wb");
 	}
@@ -790,13 +803,16 @@ int main(int argc, char* argv[]) {
 			}
 			else {
 				std::cout << "Invalid flag" << std::endl;
+				if (comp->is_initialised) delete comp;
+				break;
 				ret = 4;
 			}
 		}
+		if (!comp->is_initialised) {std::cout << "Field -o and -i obligatory" << std::endl; return 4;}
 		lex(path);
-		if (errq()) {printerr(); return 1;}
+		if (errq()) {printerr(); delete comp; return 1;}
 		Parser::Node* head = Parser::parseTokenList();
-		if (errq()) {printerr(); return 1;}
+		if (errq()) {printerr(); delete comp; return 1;}
 		ret = comp->compile(head, flags);
 	}/*
 	if (logged.size() > 0) {
@@ -804,6 +820,7 @@ int main(int argc, char* argv[]) {
 		fprintf(logging, "%s", logged.c_str());
 		fclose(logging);
 	}*/
-	delete comp;
+	if (comp->is_initialised)
+		delete comp;
 	return ret;
 }

@@ -1,0 +1,3 @@
+be hk = "string1"
+be hu(arg1)
+    be ij = "idk"
