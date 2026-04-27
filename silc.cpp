@@ -519,10 +519,16 @@ void log(std::string __tolog) {
 class Compiler {
 private:
 	#pragma pack(push, 1)
+	struct CompilerConfigs {
+		uint8_t optimisation = 0x00;
+
+		uint8_t warnings = 0x01;
+	};
 	struct BynaryHeader {
 		char magic[5] = "SIL!";
 		int version = VERNUM;
 		int minversion = VERNUM;
+		CompilerConfigs flags;
 		uint32_t stringCount;
 		uint32_t codeSize;
 	};
@@ -544,6 +550,7 @@ private:
 		RESTORE_NAMED = 0x0C,
 		JUMP = 0x0D,
 		RETURN = 0x0E,
+		ADDARG = 0x0F,
 	};
 	//uint32_t flags = 0;
 	/*
@@ -652,16 +659,21 @@ private:
 			}
 			case Parser::NodeType::Arguments: {
 				for (int i = head->getChildcount()-1; i >= 0; i--) {
-					emit(STORE_NAMED);
+					emit(opcodes::ADDARG);
+					codegen(head->getChild(i));
 				}
+				break;
 			}
-			case Parser::NodeType::FunctionDef:
+			case Parser::NodeType::FunctionDef: {
+				
+			}
 			case Parser::NodeType::FunctionCall:
 			default:
 				break;
 		}
 	}
 	std::string target = "out/main.simb";
+	BynaryHeader header;
 public:
 	Compiler() {}
 	Compiler(char* Target) {
@@ -671,10 +683,12 @@ public:
 	~Compiler() {
 		fclose(this->file);
 	}
-	int compile(Parser::Node* head) {
+	int compile(Parser::Node* head, uint16_t flags) {
+		header.flags.optimisation = (uint8_t)flags;
+		header.flags.warnings = (uint8_t)flags << 8;
 		if (errq()) return 1;
-		//Writing header & version
-		fwrite("SIL!", 1, 4, this->file);fwrite(VERSION, 1, strlen(VERSION), this->file);
+		//Writing header
+		fwrite(&this->header, sizeof(BynaryHeader), 1, file);
 
 		//Main compiling
 		this->codegen(head);
@@ -686,10 +700,11 @@ int main(int argc, char* argv[]) {
 	Compiler* comp;
 	//Example: silc input.sil -o input.silc (flags)
 	if (argc <= 1) {std::cout << "Usage: silc -i input.sil -o output.silb (flags)" << std::endl; ret = 4;}
-	if (strcmp(argv[1], "-v")) {std::cout << VERSION << std::endl;ret = 0;}
+	if (strcmp(argv[1], "--version")) {std::cout << VERSION << std::endl;ret = 0;}
 	else if (strcmp(argv[1], "--flags")) {std::cout << "None yet." << std::endl;ret = 0;}
 	else {
 		std::string path;
+		uint16_t flags;
 		for (int i = 1; i < argc; i++) {
 			char* current = argv[i];
 			if (strcmp(current, "-i")) {
@@ -700,20 +715,27 @@ int main(int argc, char* argv[]) {
 				if (i+1 >= argc) {std::cout << "Usage for -i: -o input.silc" << std::endl; ret = 4;}
 				comp = new Compiler(argv[i+1]);
 				i++;
-			} else {
+			} else if (strcmp(current, "-O0") || strcmp(current, "-O1")) {
+				if (strcmp(current, "-O1")) {
+					flags |= (1 << 15);
+				}
+			}
+			else {
 				std::cout << "Invalid flag" << std::endl;
 				ret = 4;
 			}
 		}
 		lex(path);
+		if (errq()) {printerr(); return 1;}
 		Parser::Node* head = Parser::parseTokenList();
-		ret = comp->compile(head);
-	}
+		if (errq()) {printerr(); return 1;}
+		ret = comp->compile(head, flags);
+	}/*
 	if (logged.size() > 0) {
 		FILE* logging = fopen("latest.log", "w");
 		fprintf(logging, "%s", logged.c_str());
 		fclose(logging);
-	}
+	}*/
 	delete comp;
 	return ret;
 }
