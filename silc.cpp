@@ -416,6 +416,7 @@ namespace Parser {
 	}
 
 	Node* parseExpression() {return parseAddSub();}
+	Node* parseBlock();
 
 	Node* parseStatement() {
 		if (errq()) return nullptr;
@@ -473,10 +474,29 @@ namespace Parser {
 					if (!expr) { delete retnode; return nullptr; }
 					retnode->addChild(expr);
 				} 
-				else if (peek()->cmp(Tkty::Parenthesis) && peek()->cmp('(')) {
+				else if (peek()->cmp(Tkty::Parenthesis) && peek()->getCont() == "(") {
 					retnode->resetType(NodeType::FunctionDef);
 					advance();
+
+					Node* args = new Node(NodeType::Arguments);
+					while (!peek()->cmp(")") && !peek()->cmp(Tkty::EndOfFile)) {
+						if (peek()->cmp(Tkty::Newline)) { cursor++; continue; }
+						
+						Node* expr = parseExpression();
+						if (!expr) { delete retnode; delete args; return nullptr; }
+						args->addChild(expr);
+					}
+					
+					if (!peek()->cmp(')')) {
+						reqerr("Expected ')' after arguments", "SyntaxError", whereabouts(peek()));
+						return nullptr; 
+					}
 					advance();
+					retnode->addChild(args);
+					
+					Node* body = parseBlock(); 
+					if (!body) return nullptr;
+					retnode->addChild(body);
 				}
 			}
 		}
@@ -488,6 +508,15 @@ namespace Parser {
 		}
 		advance();
 		return retnode;
+	}
+
+	Node* parseBlock() {
+		Tken* current = peek();
+		if (!current->cmp(Tkty::Newline)) {
+			reqerr("Expected newline as block starter", "SyntaxError", whereabouts(current));
+			return nullptr;
+		}
+		
 	}
 
 	Node* parseTokenList() {
@@ -665,11 +694,45 @@ private:
 				break;
 			}
 			case Parser::NodeType::FunctionDef: {
+				// 1. Tell Sil the NAME of this function
+				emit(opcodes::DEF_NAMED);
+				int nameIdx = getOrAddString(head->getChild(0)->getExtra()); // Assuming child 0 is the name
+				emitLiteral<int>(nameIdx); 
+
+				// 2. The Skip Logic
+				emit(opcodes::JUMP);
+				long patchLocation = ftell(file);
+				int dummy = 0; 
+				fwrite(&dummy, sizeof(int), 1, file); // Use a variable, not a literal 0
+
+				// 3. The Body (Arguments are child 1, Body is child 2)
+				codegen(head->getChild(1)); // Args
+				codegen(head->getChild(2)); // Logic
 				
+				emit(opcodes::RETURN);
+
+				// 4. The Patch
+				long endOfFunc = ftell(file);
+				int jumpDistance = (int)(endOfFunc - (patchLocation + sizeof(int))); // How far to skip
+				
+				fseek(file, patchLocation, SEEK_SET);
+				fwrite(&jumpDistance, sizeof(int), 1, file); 
+				fseek(file, endOfFunc, SEEK_SET); // Back to the end to continue!
+				break;
 			}
 			case Parser::NodeType::FunctionCall:
 			default:
 				break;
+		}
+	}
+	void countStrings(Parser::Node* head) {
+		if (!head) return;
+		if (head->getType() == Parser::NodeType::String || head->getType() == Parser::NodeType::Identifier) {
+			getOrAddString(head->getExtra());
+		}
+		for (int i = 0; i < head->getChildcount(); i++) {
+			auto* child = head->getChild(i);
+			countStrings(child);
 		}
 	}
 	std::string target = "out/main.simb";
@@ -684,11 +747,16 @@ public:
 		fclose(this->file);
 	}
 	int compile(Parser::Node* head, uint16_t flags) {
+		if (errq()) return 1;
 		header.flags.optimisation = (uint8_t)flags;
 		header.flags.warnings = (uint8_t)flags << 8;
-		if (errq()) return 1;
-		//Writing header
+		countStrings(head);
+		header.stringCount = this->stringTable.size();
+		//Writing header & stringtable
 		fwrite(&this->header, sizeof(BynaryHeader), 1, file);
+		for (const std::string& child : stringTable) {
+			fwrite(child.c_str(), 1, child.size()+1, file);
+		}
 
 		//Main compiling
 		this->codegen(head);
