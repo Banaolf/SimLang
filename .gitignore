@@ -1,3 +1,8 @@
+*.sim
 *.simb
 project/
 out/
+
+./sil
+./silc
+silc

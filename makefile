@@ -17,4 +17,4 @@ $(TARGETTWO):
 	$(CXX) $(INPUTTWO) -o $(TARGETTWO)
 clean:
 	$(RM) $(TARGET) $(TARGETTWO)
-.PHONY: all clean
+.PHONY: clean

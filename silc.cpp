@@ -1,6 +1,7 @@
 #include <cstdint>
 #include <cstring>
 #include <sys/types.h>
+#include "silgl.h"
 #include <utility>
 #include <cctype>
 #include <iostream>
@@ -152,7 +153,7 @@ bool only_contains(std::string_view s, char cmp) {
 	return true;
 }
 
-//Lex a file into the global Token list
+//Lex the file
 void lex(std::string path) {
 	FILE* f = fopen(path.c_str(), "r");
 	int c;
@@ -161,7 +162,6 @@ void lex(std::string path) {
 	while (not_eof(c)) {
 		if (c == '/') {
 			if ((c = fgetc(f)) == '_') {
-				//In here, there is no fgetc in the _ check since not_eof already checks and advances c.
 				while (not_eof(c) && c != '_' && (c = fgetc(f)) != '/') {if (c == '\n') {advln} else adv;}
 				if (c != EOF)
 					c = fgetc(f); //Skip trailing /
@@ -172,10 +172,12 @@ void lex(std::string path) {
 			else if (c == '\t') { addtolist('\t', Tkty::Tab, line, chr) }
 		} else if (isalpha(c)) { //IDENTIFIERS
 			std::string buffer;
-			while (not_eof(c) && (isalnum(c) || c == '_')) {
+			buffer.push_back(c);
+			while ((c = fgetc(f)) != EOF && (isalnum(c) || c == '_')) {
 				buffer.push_back(c);
-				adv
+				chr++;
 			}
+			if (c != EOF) ungetc(c, f);
 			if (lookupKeyword(buffer)) {
 				addtolist(buffer, Tkty::Keyword, line, chr)
 			} else if (buffer == "true" || buffer == "false") {
@@ -188,33 +190,33 @@ void lex(std::string path) {
 		} else if (isdigit(c)) { //INTEGERS & FLOATS
 			std::string buffer;
 			bool has_dot = false;
-			while (not_eof(c) && (isdigit(c) || c == '.')) {
+			buffer.push_back(c);
+			while ((c = fgetc(f)) != EOF && (isdigit(c) || c == '.')) {
 				if (c == '.' && has_dot) {reqerr("Cannot have multiple points on a number", "SyntaxError", line, chr); return;}
 				buffer.push_back(c);
-				adv
+				chr++;
 			}
-			if (has_dot) 
+			if (c != EOF) ungetc(c, f);
+			if (has_dot)
 				addtolist(buffer, Tkty::Float, line, chr)
 			else
 				addtolist(buffer, Tkty::Integer, line, chr)
 		} else if (c == '\'') { //RAW STRINGS
 			std::string buffer;
-			c = fgetc(f);
-			while (not_eof(c) && c != '\'') {
+			while ((c = fgetc(f)) != EOF && c != '\'') {
 				if (c == '\n') continue;
 				buffer.push_back(c);
-				adv
+				chr++;
 			}
 			if (c == EOF) {reqerr("(Raw)Strings cannot end in EOF.", "SyntaxError", line, chr); return;}
 			addtolist(buffer, Tkty::RawString, line, chr)
 		} else if (c == '"') { //STRINGS
 			std::string buffer;
-			c = fgetc(f);
-			while (not_eof(c) && c != '"') {
+			while ((c = fgetc(f)) != EOF && c != '"') {
 				if (c == '\n') {advln}
-				if (c == '\\') {c = fgetc(f); c = getEscapedChar(f);}
+				if (c == '\\') {c = getEscapedChar(f);}
 				buffer.push_back(c);
-				adv
+				chr++;
 			}
 			if (c == EOF) {reqerr("(Raw)Strings cannot end in EOF.", "SyntaxError", line, chr); return;}
 			addtolist(buffer, Tkty::String, line, chr)
@@ -372,7 +374,7 @@ namespace Parser {
 			}//Future: method and attribute access with @
 		} else
 			reqerr("Unexpected expression", "SyntaxError", whereabouts(current));
-		return lit; 
+		return lit;
 	}
 
 	Node* parseTerm() {
@@ -497,6 +499,7 @@ namespace Parser {
 					Node* body = parseBlock(); 
 					if (!body) return nullptr;
 					retnode->addChild(body);
+					return retnode;
 				}
 			}
 		}
@@ -506,6 +509,7 @@ namespace Parser {
 			reqerr("Missing statement ender", "SyntaxError", whereabouts(peek()));
 			return nullptr;
 		}
+		
 		advance();
 		return retnode;
 	}
@@ -523,15 +527,15 @@ namespace Parser {
 			if (!child) {delete body; return nullptr;}
 			body->addChild(child);
 		}
-		if (!peek()->cmp("end")) {delete body; reqerr("Expected 'end' as block ender", "Syn")}
+		if (!peek()->cmp("end")) {delete body; reqerr("Expected 'end' as block ender", "SyntaxError", whereabouts(current)); return nullptr;}
+		advance();
 		return body;
 	}
 
 	Node* parseTokenList() {
 		Node* head = new Node(NodeType::Body);
 		while (cursor < TkenList.size() && !peek()->cmp(Tkty::EndOfFile)) {
-			// Fast-skip redundant newlines or comments
-			if (peek()->cmp(Tkty::Newline) || peek()->cmp(Tkty::Hashtag)) {
+			if (peek()->cmp(Tkty::Newline)) {
 				cursor++;
 				continue;
 			}
@@ -543,7 +547,10 @@ namespace Parser {
 	}
 }
 
-/* Flaglist */
+/* Flaglist 
+-O0
+-O1
+*/
 
 std::string logged;
 void log(std::string __tolog) {
@@ -551,45 +558,9 @@ void log(std::string __tolog) {
 	logged.append(__tolog);
 }
 
-#define VERSION "SIL1"
-#define VERNUM 1
 class Compiler {
 private:
-	#pragma pack(push, 1)
-	struct CompilerConfigs {
-		uint8_t optimisation = 0x00;
 
-		uint8_t warnings = 0x01;
-	};
-	struct BynaryHeader {
-		char magic[5] = "SIL!";
-		int version = VERNUM;
-		int minversion = VERNUM;
-		CompilerConfigs flags;
-		uint32_t stringCount;
-		uint32_t codeSize;
-	};
-	#pragma pack(pop)
-
-	enum opcodes {
-		PUSH_INT = 0x00, //Booleans are treated as integers
-		PUSH_STRING = 0x01, //Raw strings and strings are the same to the compiler.
-		PUSH_FLOAT = 0x02,
-		POP = 0x03,
-		ADDITION = 0x04,
-		SUBTRACTION = 0x05,
-		MULTIPLICATION = 0x06,
-		DIVISION = 0x07,
-		STORE_NAMED = 0x08,
-		LOAD_NAMED = 0x09,
-		CALL_NAMED = 0x0A,
-		DEF_NAMED = 0x0B,
-		RESTORE_NAMED = 0x0C,
-		JUMP = 0x0D,
-		RETURN = 0x0E,
-		ADDARG = 0x0F,
-		ENDARGS = 0x10,
-	};
 	//uint32_t flags = 0;
 	/*
 	The main compiling From the AST.
@@ -659,7 +630,9 @@ private:
 			}
 			case Parser::NodeType::String:
 			case Parser::NodeType::RawString: {
-				emitString(head->getExtra());
+				emit(opcodes::PUSH_STRING);
+				int idx = getOrAddString(head->getExtra());
+				emitLiteral<int>(idx);
 				break;
 			}
 			case Parser::NodeType::Boolean: {
@@ -730,7 +703,7 @@ private:
 				emit(opcodes::CALL_NAMED);
 				int nameidx = getOrAddString(head->getChild(0)->getExtra());
 				emitLiteral<int>(nameidx);
-				codegen(head->getChild(0));
+				codegen(head->getChild(1));
 			}
 			default:
 				break;
@@ -781,23 +754,23 @@ int main(int argc, char* argv[]) {
 	Compiler* comp;
 	//Example: silc input.sil -o input.silc (flags)
 	if (argc <= 1) {std::cout << "Usage: silc -i input.sil -o output.silb (flags)" << std::endl; ret = 4;}
-	if (strcmp(argv[1], "--version")) {std::cout << VERSION << std::endl;ret = 0;}
-	else if (strcmp(argv[1], "--flags")) {std::cout << "None yet." << std::endl;ret = 0;}
+	if (strcmp(argv[1], "--version")==0) {std::cout << VERSION << std::endl;ret = 0;}
+	else if (strcmp(argv[1], "--flags")==0) {std::cout << "-O0: No optimization (default); -01 Basic Optimization(Const Folding);" << std::endl;ret = 0;}
 	else {
 		std::string path;
 		uint16_t flags;
 		for (int i = 1; i < argc; i++) {
 			char* current = argv[i];
-			if (strcmp(current, "-i")) {
+			if (strcmp(current, "-i")==0) {
 				if (i+1 >= argc) {std::cout << "Usage for -i: -i input.sil" << std::endl; ret = 4;}
 				path = argv[i+1];
 				i++;
-			} else if (strcmp(current, "-o")) {
+			} else if (strcmp(current, "-o")==0) {
 				if (i+1 >= argc) {std::cout << "Usage for -i: -o input.silc" << std::endl; ret = 4;}
 				comp = new Compiler(argv[i+1]);
 				i++;
-			} else if (strcmp(current, "-O0") || strcmp(current, "-O1")) {
-				if (strcmp(current, "-O1")) {
+			} else if (strcmp(current, "-O0")==0 || strcmp(current, "-O1")==0) {
+				if (strcmp(current, "-O1")==0) {
 					flags |= (1 << 15);
 				}
 			}
