@@ -783,9 +783,9 @@ int main(int argc, char* argv[]) {
 		}
 		if (!comp->is_initialised) {std::cout << "Field -o and -i obligatory" << std::endl; return 4;}
 		lex(path);
-		if (errq()) {printerr(); delete comp; return 1;}
+		if (errq()) {printerr(); remove(path.c_str()); delete comp; return 1;}
 		Parser::Node* head = Parser::parseTokenList();
-		if (errq()) {printerr(); delete comp; return 1;}
+		if (errq()) {printerr(); remove(path.c_str()); delete comp; return 1;}
 		ret = comp->compile(head, flags);
 	}/*
 	if (logged.size() > 0) {

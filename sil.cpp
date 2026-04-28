@@ -4,12 +4,13 @@
 #include <vector>
 #include <string>
 #include <cstdio>
+#include <cstring>
 
 #define ERR 0xF6
 uint8_t state = 0;
 
 typedef struct Runner {
-    std::stack<int> stack;
+    std::stack<double> stack;
     std::vector<std::string> stringtable;
     std::vector<unsigned char> code;
     FILE* file;
@@ -18,11 +19,12 @@ typedef struct Runner {
 }Runner_t;
 
 Runner_t rnr;
-
+void print(std::string data) {std::cout << data << std::endl;}
 void load() {
     rnr.file = fopen(rnr.path.c_str(), "rb");
     BynaryHeader hdr;
     fread(&hdr, sizeof(BynaryHeader), 1, rnr.file);
+    if (strcmp(hdr.magic, "SIL!")) {print("Invalid Magic Number."); fclose(rnr.file); state=ERR; return;}
 
     for (int i = 0; i < hdr.stringCount; i++) {
         std::string v;
@@ -39,7 +41,12 @@ void run() {
     while (rnr.ip < rnr.code.size()) {
         unsigned char opcode = rnr.code[rnr.ip++];
         switch (opcode) {
-            case PUSH_INT:
+            case PUSH_INT: {
+                int integer = *(int*)&rnr.code[rnr.ip];
+                rnr.stack.push(integer);
+                rnr.ip += 4;
+                break;
+            }
             case PUSH_STRING:
             case PUSH_FLOAT:
             case POP:
@@ -57,13 +64,13 @@ void run() {
             case ADDARG:
             case ENDARGS:
             default:
-                std::cout << "Unknown opcode" << std::endl;
+                print("Unknown opcode");
                 state = ERR;
                 return;
         }
     }
 }
 
-int main(int argc, char** argv) {
+int main(int argc, char* argv[]) {
     return 0;
 }

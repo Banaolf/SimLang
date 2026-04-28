@@ -1,5 +1,5 @@
 CXX = g++
-CXXFLAGS = -Wall -Wextra
+CXXFLAGS = -Wall -Wextra -O2
 
 RM = rm
 
